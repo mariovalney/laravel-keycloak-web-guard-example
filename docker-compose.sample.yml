@@ -1,0 +1,96 @@
+version: '2'
+
+services:
+  proxy:
+    image: jwilder/nginx-proxy
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./docker/development/certs:/etc/nginx/certs
+      - ./docker/development/proxy.nginx.conf:/etc/nginx/conf.d/custom.conf
+
+  postgres:
+    image: postgres:10.5-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+  mailhog:
+    expose:
+      - 443
+      - 8025
+    environment:
+      VIRTUAL_HOST: mail.laravel.localtest.me
+      VIRTUAL_PORT: 8025
+    logging:
+      driver: 'none'
+    image: mailhog/mailhog
+    networks:
+      - default
+      - proxy
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:11.0.2
+    depends_on:
+      - mailhog
+      - postgres
+    expose:
+      - 443
+      - 8080
+    environment:
+      ENVIRONMENT: development
+      DB_VENDOR: POSTGRES
+      DB_ADDR: postgres
+      DB_DATABASE: keycloak
+      DB_USER: keycloak
+      DB_SCHEMA: public
+      DB_PASSWORD: password
+      KEYCLOAK_HOSTNAME: sso.laravel.localtest.me
+      KEYCLOAK_USER: admin
+      KEYCLOAK_PASSWORD: admin
+      HOSTNAME: keycloak
+      PROXY_ADDRESS_FORWARDING: "true"
+      VIRTUAL_HOST: sso.laravel.localtest.me
+      VIRTUAL_PORT: 8080
+    networks:
+      default:
+        aliases:
+          - sso.laravel.localtest.me
+      proxy:
+        aliases:
+          - sso.laravel.localtest.me
+    volumes:
+      - jgroups:/var/lib/jgroups
+
+  web:
+    build: docker/development
+    environment:
+      VIRTUAL_HOST: laravel.localtest.me
+      VIRTUAL_PORT: 80
+    external_links:
+      - blog_proxy_1:sso.laravel.localtest.me
+    networks:
+      default:
+        aliases:
+          - laravel.localtest.me
+      proxy:
+        aliases:
+          - laravel.localtest.me
+    volumes:
+      - .:/var/www/html
+
+networks:
+  proxy:
+
+volumes:
+  postgres:
+  jgroups:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1000
